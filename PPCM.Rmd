@@ -1,0 +1,223 @@
+---
+title: "PeripartumCardiomyopathy"
+author: "Chris Roeder"
+date: "1/27/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(bigrquery)
+billing <- "hdcdm1950"
+
+epoch <- '1970-01-01'
+
+# multiple mappings from ICD to SNOMED?
+dataset <- "hdcidhf"
+q1 <- paste0(   "select count(distinct person_id) as p_count, ",
+                "co.condition_source_value, c.concept_name, c.vocabulary_id, c.concept_code ",
+                "from ", dataset, ".concept c ",
+                "join ", dataset, ".condition_occurrence co on c.concept_id = co.condition_concept_id ",
+                "where co.condition_source_value like '%674.5%' ",
+                "group by condition_source_value, concept_name, vocabulary_id, concept_code "
+)
+print(q1)
+results <- bq_table_download(bq_project_query(billing, q1))
+print(results)  
+
+q1a <- paste0( "select count(distinct person_id) as total ",
+               "from ", dataset, ".condition_occurrence co ",
+               "where co.condition_source_value like '%674.5%' "
+)
+print(q1a)
+results <- bq_table_download(bq_project_query(billing, q1a))
+print(results) 
+```
+
+```{r}
+
+### ΑDD LVEF < 35%!!!!!!!!!!
+
+dataset <- "hdcidhf_kratos"
+q2 <- paste0(   "select count(distinct person_id) as ct, ",
+                "  co.condition_source_value, c.concept_name, c.vocabulary_id, c.concept_code, ",
+                "  min(co.condition_start_date), ",
+                "  max(co.condition_start_date) ",
+                "from ", dataset, ".concept c ",
+                "join ", dataset, ".condition_occurrence co on c.concept_id = co.condition_concept_id ",
+                "where co.condition_source_value like '%O90.3%' ",
+                "   or (lower(c.concept_name) like '%peripartum%' ",
+                "  and lower(c.concept_name) like '%cardiomyopath%') ",
+                "  and condition_start_date > DATE('2018-01-01')",
+                "group by condition_source_value, concept_name, vocabulary_id, concept_code "
+)
+print(q2)
+results <- bq_table_download(bq_project_query(billing, q2))
+print(results)   
+```
+
+# total CCPM  on Kratos up to 2012-02
+```{r}
+dataset <- "hdcidhf_kratos"
+q2a <- paste0( "select count(distinct person_id) as total, ",
+               "from ", dataset, ".condition_occurrence co ",
+               "where co.condition_source_value like '%O90.3%' ",
+               "  and condition_start_date > DATE('2018-01-01')"
+)
+print(q2a)
+results <- bq_table_download(bq_project_query(billing, q2a))
+print(results) 
+
+```     
+
+# total on Kratos up to 2012-02, LVEF < 35%
+```{r}
+dataset <- "hdcidhf_kratos"
+q2a <- paste0( "select count(distinct co.person_id) as total, ",
+                    "min(co.condition_start_date), ",
+                    "max(co.condition_start_date) ",
+               "from ", dataset, ".condition_occurrence co ",
+               "join ", dataset, ".measurement m on co.person_id = m.person_id ",
+               "  and m.measurement_concept_id in (3005737, 3007326) ",
+               "  and m.value_as_number < 35 ",
+               "where co.condition_source_value like '%O90.3%' ",
+               "  and condition_start_date > DATE('2018-01-01')"
+)
+print(q2a)
+results <- bq_table_download(bq_project_query(billing, q2a))
+print(results) 
+
+```  
+
+# Kratos, LVEF < 35%, and pregnant
+```{r}
+dataset <- "hdcidhf_kratos"
+q2a <- paste0( "select count(distinct co.person_id) as total, ",
+                    "min(co.condition_start_date), ",
+                    "max(co.condition_start_date) ",
+               "from ", dataset, ".condition_occurrence co ",
+        # LVEF       
+               "join ", dataset, ".measurement m on co.person_id = m.person_id ",
+               "  and m.measurement_concept_id in (3005737, 3007326) ",
+               "  and m.value_as_number < 35 ",
+        # PREGNANT
+               "join ", dataset, ".condition_occurrence cop on cop.person_id = m.person_id ",
+               "  and cop.condition_concept_id in (44837786, 45600319, 4188598, 4307820) ",
+        # PPCM
+               "where co.condition_source_value like '%O90.3%' ",
+               "  and co.condition_start_date > DATE('2018-01-01')"
+)
+print(q2a)
+results <- bq_table_download(bq_project_query(billing, q2a))
+print(results) 
+
+``` 
+# Kratos, LVEF < 35%, and pregnant since 2018-01-01
+```{r}
+dataset <- "hdcidhf_kratos"
+q2a <- paste0( "select count(distinct co.person_id) as total, ",
+                "  min(co.condition_start_date), ",
+                "max(co.condition_start_date) ",
+                "from ", dataset, ".condition_occurrence co ",
+        # LVEF       
+                "join ", dataset, ".measurement m on co.person_id = m.person_id ",
+                "  and m.measurement_concept_id in (3005737, 3007326) ",
+                "  and m.value_as_number < 35 ",
+        # PREGNANT
+                "join ", dataset, ".condition_occurrence cop on cop.person_id = m.person_id ",
+                "  and cop.condition_concept_id in (44837786, 45600319, 4188598, 4307820) ",
+                "  and cop.condition_start_date > DATE('2018-01-01') ",
+        # PPCM
+                "where co.condition_source_value like '%O90.3%' ",
+                "  and co.condition_start_date > DATE('2018-01-01') "
+)
+print(q2a)
+results <- bq_table_download(bq_project_query(billing, q2a))
+print(results) 
+
+```  
+
+# detail, not count
+```{r}
+dataset <- "hdcidhf_kratos"
+# cast person_id to string because some large values end up as NA here in R.
+q2a <- paste0( "select cast(co.person_id as string), cop.condition_concept_id as preg_cond, ",
+                "  co.condition_concept_id as ppcm_cond, ", 
+                "  c.concept_name as ppcm_name, ",
+                "  cp.concept_name as preg_name, ",
+                "  min(co.condition_start_date), ",
+                "  min(cop.condition_start_date), ",
+                "  max(cop.condition_start_date) ",
+                "from ", dataset, ".condition_occurrence co ",
+        # LVEF       
+                "join ", dataset, ".measurement m on co.person_id = m.person_id ",
+                "  and m.measurement_concept_id in (3005737, 3007326) ",
+                "  and m.value_as_number < 35 ",
+        # PREGNANT
+                "join ", dataset, ".condition_occurrence cop on cop.person_id = m.person_id ",
+                "  and cop.condition_concept_id in (44837786, 45600319, 4188598, 4307820) ",
+                "  and cop.condition_start_date > DATE('2018-01-01') ",
+        # PPCM
+                "join ", dataset, ".concept c on c.concept_id = co.condition_concept_id ",
+                "join ", dataset, ".concept cp on cp.concept_id = cop.condition_concept_id ",
+                "where co.condition_source_value like '%O90.3%' ",
+                "  and co.condition_concept_id != 444094 ",
+                "  and co.condition_start_date > DATE('2018-01-01') ",
+                "group by co.person_id, preg_cond, preg_name, ppcm_cond, ppcm_name ",
+                "order by  co.person_id"
+)
+print(q2a)
+results <- bq_table_download(bq_project_query(billing, q2a))
+print(results) 
+
+``` 
+
+
+
+# Check LVEF measurement concepts and Pregnant condition concepts
+```{r}
+dataset <- "hdcidhf_kratos"
+qc<- paste0( "select concept_id, concept_name, vocabulary_id, concept_code ",
+               "from ", dataset, ".concept c ",
+               "where c.concept_id in (3005737, 3007326, 44837786, 45600319, 4188598, 430782) "
+
+)
+print(qc)
+results <- bq_table_download(bq_project_query(billing, qc))
+print(results) 
+
+```
+
+# NA person_ids in Condition
+## High-risk pregnancy values here have null person_ids
+```{r}
+dataset <- "hdcidhf_kratos"
+qc<- paste0( "select count(*), co.condition_concept_id ",
+             "from ", dataset, ".condition_occurrence co ",
+             "where co.condition_concept_id in (44837786, 45600319, 4188598, 430782) ",
+             " or  co.condition_source_value like '%O90.3%' ",
+             "  and co.person_id is NULL",  # <------------ I SHIT  YOU NOT!
+             " group by condition_concept_id " 
+)
+print(qc)
+results <- bq_table_download(bq_project_query(billing, qc))
+print(results) 
+```
+
+# NA person_ids in Measurement? OK here
+```{r}
+dataset <- "hdcidhf_kratos"
+qc<- paste0( "select count(*), m.measurement_concept_id ",
+             "from ", dataset, ".measurement m ",
+             "where m.measurement_concept_id in (3005737, 3007326) ",
+#             "  and m.person_id is NULL",
+             " group by measurement_concept_id " 
+)
+print(qc)
+results <- bq_table_download(bq_project_query(billing, qc))
+print(results) 
+```
+
